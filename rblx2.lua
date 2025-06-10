@@ -1,6 +1,3 @@
--- Grow A Garden Advanced Pet ESP & Server Hopper + Seed Pack Manipulator
--- Fixed ESP detection and added seed pack targeting
-
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 -- Services
