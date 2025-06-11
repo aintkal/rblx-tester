@@ -1,4 +1,101 @@
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- Grow A Garden Advanced Pet ESP & Server Hopper + Enhanced Seed Pack Manipulator
+-- Fixed GUI library and enhanced seed pack targeting
+
+-- Try multiple GUI libraries as fallback
+local GUI
+local success = false
+
+-- Method 1: Try Kavo UI
+if not success then
+    success = pcall(function()
+        GUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/xHeptc/Kavo-UI-Library/main/source.lua"))()
+    end)
+end
+
+-- Method 2: Try Orion UI as backup
+if not success then
+    success = pcall(function()
+        GUI = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Orion/main/source'))()
+    end)
+end
+
+-- Method 3: Create simple custom GUI if others fail
+if not success then
+    GUI = {}
+    function GUI:MakeWindow(config)
+        local ScreenGui = Instance.new("ScreenGui")
+        ScreenGui.Name = "CustomGUI"
+        ScreenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+        
+        local Frame = Instance.new("Frame")
+        Frame.Size = UDim2.new(0, 400, 0, 600)
+        Frame.Position = UDim2.new(0.5, -200, 0.5, -300)
+        Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        Frame.BorderSizePixel = 0
+        Frame.Parent = ScreenGui
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 10)
+        corner.Parent = Frame
+        
+        local Title = Instance.new("TextLabel")
+        Title.Size = UDim2.new(1, 0, 0, 40)
+        Title.BackgroundTransparency = 1
+        Title.Text = config.Name or "Custom GUI"
+        Title.TextColor3 = Color3.new(1, 1, 1)
+        Title.TextScaled = true
+        Title.Font = Enum.Font.GothamBold
+        Title.Parent = Frame
+        
+        return {
+            Frame = Frame,
+            MakeTab = function(self, name)
+                return {
+                    AddButton = function(self, config)
+                        local Button = Instance.new("TextButton")
+                        Button.Size = UDim2.new(0.9, 0, 0, 30)
+                        Button.Position = UDim2.new(0.05, 0, 0, (#Frame:GetChildren() - 2) * 35 + 50)
+                        Button.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+                        Button.Text = config.Text or config.Name or "Button"
+                        Button.TextColor3 = Color3.new(1, 1, 1)
+                        Button.Font = Enum.Font.Gotham
+                        Button.Parent = Frame
+                        
+                        local buttonCorner = Instance.new("UICorner")
+                        buttonCorner.CornerRadius = UDim.new(0, 5)
+                        buttonCorner.Parent = Button
+                        
+                        Button.MouseButton1Click:Connect(config.Callback or function() end)
+                        return Button
+                    end,
+                    AddToggle = function(self, config)
+                        local Toggle = Instance.new("TextButton")
+                        Toggle.Size = UDim2.new(0.9, 0, 0, 30)
+                        Toggle.Position = UDim2.new(0.05, 0, 0, (#Frame:GetChildren() - 2) * 35 + 50)
+                        Toggle.BackgroundColor3 = config.Default and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
+                        Toggle.Text = (config.Name or "Toggle") .. ": " .. (config.Default and "ON" or "OFF")
+                        Toggle.TextColor3 = Color3.new(1, 1, 1)
+                        Toggle.Font = Enum.Font.Gotham
+                        Toggle.Parent = Frame
+                        
+                        local toggleCorner = Instance.new("UICorner")
+                        toggleCorner.CornerRadius = UDim.new(0, 5)
+                        toggleCorner.Parent = Toggle
+                        
+                        local state = config.Default or false
+                        Toggle.MouseButton1Click:Connect(function()
+                            state = not state
+                            Toggle.BackgroundColor3 = state and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0)
+                            Toggle.Text = (config.Name or "Toggle") .. ": " .. (state and "ON" or "OFF")
+                            if config.Callback then config.Callback(state) end
+                        end)
+                        return Toggle
+                    end
+                }
+            end
+        }
+    end
+end
 
 -- Services
 local Players = game:GetService("Players")
@@ -15,7 +112,7 @@ local Camera = Workspace.CurrentCamera
 
 -- Settings
 local Settings = {
-    TargetPets = {},
+    TargetPets = {"Disco Bee", "Tarantula Hawk", "Raccoon"},
     ServerHopEnabled = false,
     ServerHopDelay = 3,
     ESPEnabled = false,
@@ -25,15 +122,227 @@ local Settings = {
     LowPopServers = true,
     AutoRefreshEgg = false,
     RefreshInterval = 30,
-    SeedPackManipulation = false,
+    SeedPackManipulation = true,
     TargetSeed = "Sunflower",
-    AutoSkipAnimation = true
+    AutoSkipAnimation = true,
+    SeedPackAutoOpen = false,
+    SeedPackDelay = 1
 }
 
 -- ESP Objects Storage
 local ESPObjects = {}
 local EggConnections = {}
 local SeedPackConnections = {}
+local SeedPackActive = false
+
+-- Enhanced Seed Pack Database with better targeting
+local SeedPackDatabase = {
+    ["Flower Seed Pack"] = {
+        ["Sunflower"] = {rarity = "Divine", chance = 0.5, priority = 10},
+        ["Purple Dahlia"] = {rarity = "Mythical", chance = 4.5, priority = 9},
+        ["Pink Lily"] = {rarity = "Mythical", chance = 10, priority = 8},
+        ["Lilac"] = {rarity = "Legendary", chance = 20, priority = 7},
+        ["Foxglove"] = {rarity = "Rare", chance = 25, priority = 6},
+        ["Rose"] = {rarity = "Uncommon", chance = 40, priority = 5}
+    }
+}
+
+-- Advanced Seed Pack Detection and Manipulation
+local SeedPackManager = {
+    detectedPacks = {},
+    activeManipulation = false,
+    lastPackTime = 0
+}
+
+-- Enhanced seed pack detection
+function SeedPackManager:detectSeedPackUI()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then return nil end
+    
+    -- Multiple detection methods
+    local detectionMethods = {
+        -- Method 1: Direct UI names
+        function()
+            local names = {"SeedPackUI", "PackOpening", "GachaUI", "SeedGacha", "PackUI", "Pack", "Seed"}
+            for _, name in pairs(names) do
+                local ui = playerGui:FindFirstChild(name)
+                if ui then return ui end
+            end
+        end,
+        
+        -- Method 2: Search by text content
+        function()
+            for _, ui in pairs(playerGui:GetChildren()) do
+                if ui:IsA("ScreenGui") and ui.Enabled then
+                    for _, element in pairs(ui:GetDescendants()) do
+                        if element:IsA("TextLabel") and element.Text then
+                            local text = element.Text:lower()
+                            if text:find("seed") or text:find("pack") or text:find("flower") then
+                                return ui
+                            end
+                        end
+                    end
+                end
+            end
+        end,
+        
+        -- Method 3: Search by image content
+        function()
+            for _, ui in pairs(playerGui:GetChildren()) do
+                if ui:IsA("ScreenGui") and ui.Enabled then
+                    for _, element in pairs(ui:GetDescendants()) do
+                        if element:IsA("ImageLabel") and element.Image then
+                            local img = element.Image:lower()
+                            if img:find("seed") or img:find("flower") or img:find("pack") then
+                                return ui
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    }
+    
+    for _, method in pairs(detectionMethods) do
+        local result = method()
+        if result then return result end
+    end
+    
+    return nil
+end
+
+-- Advanced seed pack manipulation
+function SeedPackManager:manipulatePack(packUI)
+    if not Settings.SeedPackManipulation or not packUI then return end
+    
+    self.activeManipulation = true
+    
+    spawn(function()
+        -- Multi-stage manipulation
+        local stages = {
+            -- Stage 1: Auto-skip animations
+            function()
+                if Settings.AutoSkipAnimation then
+                    for _, element in pairs(packUI:GetDescendants()) do
+                        if element:IsA("TextButton") then
+                            local text = element.Text:lower()
+                            if text:find("skip") or text:find("next") or text:find("continue") then
+                                wait(0.1)
+                                element.Activated:Fire()
+                                pcall(function() fireproximityprompt(element) end)
+                                pcall(function() fireclickdetector(element) end)
+                            end
+                        end
+                    end
+                end
+            end,
+            
+            -- Stage 2: Target seed selection
+            function()
+                for _, element in pairs(packUI:GetDescendants()) do
+                    if element:IsA("TextLabel") and element.Text == Settings.TargetSeed then
+                        local parent = element.Parent
+                        if parent then
+                            -- Try multiple selection methods
+                            pcall(function()
+                                if parent:FindFirstChild("Selected") then
+                                    parent.Selected.Value = true
+                                end
+                            end)
+                            
+                            pcall(function()
+                                if parent:IsA("TextButton") then
+                                    parent.Activated:Fire()
+                                end
+                            end)
+                            
+                            pcall(function()
+                                if parent:FindFirstChild("ClickDetector") then
+                                    fireclickdetector(parent.ClickDetector)
+                                end
+                            end)
+                        end
+                    end
+                end
+            end,
+            
+            -- Stage 3: Remote manipulation
+            function()
+                local remotes = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:FindFirstChild("Events")
+                if remotes then
+                    for _, remote in pairs(remotes:GetDescendants()) do
+                        local name = remote.Name:lower()
+                        if name:find("seed") or name:find("pack") or name:find("gacha") or name:find("open") then
+                            pcall(function()
+                                if remote:IsA("RemoteEvent") then
+                                    remote:FireServer(Settings.TargetSeed)
+                                    remote:FireServer({seed = Settings.TargetSeed})
+                                    remote:FireServer("select", Settings.TargetSeed)
+                                elseif remote:IsA("RemoteFunction") then
+                                    remote:InvokeServer(Settings.TargetSeed)
+                                    remote:InvokeServer({seed = Settings.TargetSeed})
+                                end
+                            end)
+                        end
+                    end
+                end
+            end,
+            
+            -- Stage 4: Direct data manipulation (if possible)
+            function()
+                pcall(function()
+                    local playerData = LocalPlayer:FindFirstChild("Data") or LocalPlayer:FindFirstChild("leaderstats")
+                    if playerData then
+                        for _, data in pairs(playerData:GetDescendants()) do
+                            if data.Name:lower():find("seed") and data:IsA("StringValue") then
+                                data.Value = Settings.TargetSeed
+                            end
+                        end
+                    end
+                end)
+            end
+        }
+        
+        -- Execute all stages with delays
+        for i, stage in pairs(stages) do
+            wait(Settings.SeedPackDelay * 0.5)
+            stage()
+        end
+        
+        wait(2)
+        self.activeManipulation = false
+    end)
+end
+
+-- Monitor for seed pack UI
+function SeedPackManager:startMonitoring()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then return end
+    
+    -- Monitor for new UIs
+    playerGui.ChildAdded:Connect(function(child)
+        if child:IsA("ScreenGui") then
+            wait(0.2) -- Allow UI to load
+            local packUI = self:detectSeedPackUI()
+            if packUI then
+                self:manipulatePack(packUI)
+            end
+        end
+    end)
+    
+    -- Periodic check for existing UIs
+    spawn(function()
+        while true do
+            wait(1)
+            if Settings.SeedPackManipulation and not self.activeManipulation then
+                local packUI = self:detectSeedPackUI()
+                if packUI then
+                    self:manipulatePack(packUI)
+                end
+            end
+        end
+    end)
+end
 
 -- Pet Database with weights
 local PetDatabase = {
@@ -51,67 +360,24 @@ local PetDatabase = {
         ["Frog"] = {weight = {0.8, 2.0}, rarity = "Common"},
         ["Mole"] = {weight = {2.0, 4.0}, rarity = "Uncommon"},
         ["Hedgehog"] = {weight = {1.2, 2.5}, rarity = "Uncommon"}
-    },
-    ["Bug Egg"] = {
-        ["Dragonfly"] = {weight = {0.3, 0.8}, rarity = "Common"},
-        ["Praying Mantis"] = {weight = {1.0, 2.2}, rarity = "Uncommon"},
-        ["Caterpillar"] = {weight = {0.5, 1.0}, rarity = "Common"},
-        ["Snail"] = {weight = {0.2, 0.6}, rarity = "Common"},
-        ["Giant Ant"] = {weight = {1.5, 3.5}, rarity = "Rare"}
     }
 }
 
--- Seed Pack Database
-local SeedPackDatabase = {
-    ["Flower Seed Pack"] = {
-        ["Sunflower"] = {rarity = "Divine", chance = 0.5},
-        ["Purple Dahlia"] = {rarity = "Mythical", chance = 4.5},
-        ["Pink Lily"] = {rarity = "Mythical", chance = 10},
-        ["Lilac"] = {rarity = "Legendary", chance = 20},
-        ["Foxglove"] = {rarity = "Rare", chance = 25},
-        ["Rose"] = {rarity = "Uncommon", chance = 40}
-    }
-}
-
--- Get all seeds for dropdown
-local allSeeds = {}
-for packType, seeds in pairs(SeedPackDatabase) do
-    for seedName, _ in pairs(seeds) do
-        table.insert(allSeeds, seedName)
-    end
-end
-
--- Get DataService safely
-local function getDataService()
-    local success, result = pcall(function()
-        return require(ReplicatedStorage.Modules.DataService)
-    end)
-    return success and result or nil
-end
-
--- Find eggs in workspace with improved detection
+-- Enhanced egg detection
 local function findEggsInWorkspace()
     local eggs = {}
-    
-    -- Search in common locations
     local searchAreas = {
         Workspace,
         Workspace:FindFirstChild("Plots"),
         Workspace:FindFirstChild("Map"),
-        Workspace:FindFirstChild("Garden"),
-        LocalPlayer.Character and LocalPlayer.Character.Parent
+        Workspace:FindFirstChild("Garden")
     }
     
     for _, area in pairs(searchAreas) do
         if area then
             for _, obj in pairs(area:GetDescendants()) do
-                -- Improved egg detection
                 if (obj.Name:lower():find("egg") or obj.Name:lower():find("pet")) and obj:IsA("BasePart") then
-                    -- Check for egg-related attributes or children
-                    if obj:FindFirstChild("ObjectId") or 
-                       obj:FindFirstChild("PetData") or 
-                       obj:GetAttribute("EggData") or
-                       obj:GetAttribute("ObjectId") then
+                    if obj:FindFirstChild("ObjectId") or obj:GetAttribute("EggData") then
                         table.insert(eggs, obj)
                     end
                 end
@@ -122,483 +388,159 @@ local function findEggsInWorkspace()
     return eggs
 end
 
--- Enhanced data reading with error handling
-local function getEggData()
-    local allEggData = {}
+-- Simple notification system
+local function showNotification(title, text, duration)
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "Notification"
+    gui.Parent = LocalPlayer.PlayerGui
     
-    -- Method 1: Try DataService
-    pcall(function()
-        local DataSer = getDataService()
-        if DataSer and DataSer.GetData then
-            local data = DataSer:GetData()
-            if data and data.SavedObjects then
-                for i, v in pairs(data.SavedObjects) do
-                    if v.ObjectType == "PetEgg" and v.Data then
-                        allEggData[tostring(i)] = v
-                    end
-                end
-            end
-        end
-    end)
-    
-    -- Method 2: Try LocalPlayer data
-    pcall(function()
-        if LocalPlayer:FindFirstChild("Data") then
-            local data = LocalPlayer.Data
-            if data:FindFirstChild("SavedObjects") then
-                for _, v in pairs(data.SavedObjects:GetChildren()) do
-                    if v.Name:find("PetEgg") and v:FindFirstChild("Data") then
-                        allEggData[v.Name] = {
-                            Data = {
-                                RandomPetData = {
-                                    Name = v.Data:FindFirstChild("PetName") and v.Data.PetName.Value or "Unknown",
-                                    Weight = v.Data:FindFirstChild("Weight") and v.Data.Weight.Value or 0
-                                },
-                                CanHatch = v.Data:FindFirstChild("CanHatch") and v.Data.CanHatch.Value or false
-                            }
-                        }
-                    end
-                end
-            end
-        end
-    end)
-    
-    -- Method 3: Workspace scanning with attributes
-    pcall(function()
-        local workspaceEggs = findEggsInWorkspace()
-        for _, egg in pairs(workspaceEggs) do
-            local objectId = egg:GetAttribute("ObjectId") or (egg:FindFirstChild("ObjectId") and egg.ObjectId.Value)
-            if objectId then
-                allEggData[tostring(objectId)] = {
-                    Data = {
-                        RandomPetData = {
-                            Name = egg:GetAttribute("PetName") or "Unknown Pet",
-                            Weight = egg:GetAttribute("Weight") or math.random(1, 10)
-                        },
-                        CanHatch = egg:GetAttribute("CanHatch") or true
-                    },
-                    WorkspaceObject = egg
-                }
-            end
-        end
-    end)
-    
-    return allEggData
-end
-
--- Create enhanced ESP with fixed string handling
-local function CreateAdvancedESP(obj, petName, weight, canHatch)
-    if ESPObjects[obj] then
-        return
-    end
-    
-    -- Ensure petName is a string
-    petName = tostring(petName or "Unknown Pet")
-    weight = tonumber(weight) or 0
-    
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "AdvancedPetESP"
-    billboard.Adornee = obj
-    billboard.Size = UDim2.new(0, 200, 0, 100)
-    billboard.StudsOffset = Vector3.new(0, 3, 0)
-    billboard.AlwaysOnTop = true
-    billboard.Parent = obj
-    
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Size = UDim2.new(1, 0, 1, 0)
-    mainFrame.BackgroundColor3 = canHatch and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 165, 0)
-    mainFrame.BackgroundTransparency = Settings.ESPTransparency
-    mainFrame.BorderSizePixel = 2
-    mainFrame.BorderColor3 = Color3.new(1, 1, 1)
-    mainFrame.Parent = billboard
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 300, 0, 80)
+    frame.Position = UDim2.new(1, -320, 0, 20)
+    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    frame.BorderSizePixel = 0
+    frame.Parent = gui
     
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = mainFrame
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = frame
     
-    local petLabel = Instance.new("TextLabel")
-    petLabel.Size = UDim2.new(1, 0, 0.5, 0)
-    petLabel.Position = UDim2.new(0, 0, 0, 0)
-    petLabel.BackgroundTransparency = 1
-    petLabel.Text = petName
-    petLabel.TextColor3 = Color3.new(1, 1, 1)
-    petLabel.TextScaled = true
-    petLabel.Font = Enum.Font.GothamBold
-    petLabel.Parent = mainFrame
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, 0, 0.4, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = title
+    titleLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+    titleLabel.TextScaled = true
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.Parent = frame
     
-    if Settings.ShowWeight and weight > 0 then
-        local weightLabel = Instance.new("TextLabel")
-        weightLabel.Size = UDim2.new(1, 0, 0.3, 0)
-        weightLabel.Position = UDim2.new(0, 0, 0.5, 0)
-        weightLabel.BackgroundTransparency = 1
-        weightLabel.Text = string.format("%.2f KG", weight)
-        weightLabel.TextColor3 = Color3.new(1, 1, 0)
-        weightLabel.TextScaled = true
-        weightLabel.Font = Enum.Font.Gotham
-        weightLabel.Parent = mainFrame
-    end
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Size = UDim2.new(1, 0, 0.6, 0)
+    textLabel.Position = UDim2.new(0, 0, 0.4, 0)
+    textLabel.BackgroundTransparency = 1
+    textLabel.Text = text
+    textLabel.TextColor3 = Color3.new(1, 1, 1)
+    textLabel.TextScaled = true
+    textLabel.Font = Enum.Font.Gotham
+    textLabel.Parent = frame
     
-    local statusLabel = Instance.new("TextLabel")
-    statusLabel.Size = UDim2.new(1, 0, 0.2, 0)
-    statusLabel.Position = UDim2.new(0, 0, 0.8, 0)
-    statusLabel.BackgroundTransparency = 1
-    statusLabel.Text = canHatch and "READY!" or "Hatching..."
-    statusLabel.TextColor3 = canHatch and Color3.new(0, 1, 0) or Color3.new(1, 0.5, 0)
-    statusLabel.TextScaled = true
-    statusLabel.Font = Enum.Font.GothamBold
-    statusLabel.Parent = mainFrame
+    -- Animation
+    frame:TweenPosition(UDim2.new(1, -320, 0, 20), "Out", "Quad", 0.3)
     
-    ESPObjects[obj] = billboard
+    wait(duration or 3)
+    
+    frame:TweenPosition(UDim2.new(1, 0, 0, 20), "In", "Quad", 0.3)
+    wait(0.3)
+    gui:Destroy()
 end
 
--- Clear ESP function
-local function ClearAllESP()
-    for obj, billboard in pairs(ESPObjects) do
-        if billboard and billboard.Parent then
-            billboard:Destroy()
-        end
-    end
-    ESPObjects = {}
-end
-
--- Fixed UpdateAdvancedESP function
-local function UpdateAdvancedESP()
-    if not Settings.ESPEnabled then
-        return
-    end
-    
-    ClearAllESP()
-    local eggData = getEggData()
-    
-    for eggId, eggInfo in pairs(eggData) do
-        pcall(function()
-            if eggInfo.Data and eggInfo.Data.RandomPetData then
-                local petName = tostring(eggInfo.Data.RandomPetData.Name or "Unknown")
-                local canHatch = eggInfo.Data.CanHatch or false
-                local weight = tonumber(eggInfo.Data.RandomPetData.Weight) or 0
-                
-                -- Check if this pet is in our target list
-                for _, targetPet in pairs(Settings.TargetPets) do
-                    if petName:lower():find(targetPet:lower()) or targetPet:lower():find(petName:lower()) then
-                        -- Try to find workspace object
-                        local workspaceObj = eggInfo.WorkspaceObject
-                        if not workspaceObj then
-                            -- Search for it in workspace
-                            local workspaceEggs = findEggsInWorkspace()
-                            for _, obj in pairs(workspaceEggs) do
-                                local objId = obj:GetAttribute("ObjectId") or (obj:FindFirstChild("ObjectId") and tostring(obj.ObjectId.Value))
-                                if objId and tostring(objId) == tostring(eggId) then
-                                    workspaceObj = obj
-                                    break
-                                end
-                            end
-                        end
-                        
-                        if workspaceObj then
-                            CreateAdvancedESP(workspaceObj, petName, weight, canHatch)
-                        end
-                        break
-                    end
-                end
-            end
-        end)
-    end
-end
-
--- Check if target pets are found (for server hop prevention)
-local function hasTargetPets()
-    local eggData = getEggData()
-    
-    for _, eggInfo in pairs(eggData) do
-        if eggInfo.Data and eggInfo.Data.RandomPetData and eggInfo.Data.CanHatch then
-            local petName = tostring(eggInfo.Data.RandomPetData.Name or "")
-            for _, targetPet in pairs(Settings.TargetPets) do
-                if petName:lower():find(targetPet:lower()) then
-                    return true
-                end
-            end
-        end
-    end
-    return false
-end
-
--- Enhanced server hop with target detection
-local function EnhancedServerHop()
-    if not Settings.ServerHopEnabled then return end
-    
-    -- Don't hop if we found target pets
-    if hasTargetPets() then
-        return
-    end
-    
-    if Settings.LowPopServers then
-        local servers = getOptimalServers()
-        if #servers > 0 then
-            local randomServer = servers[math.random(1, #servers)]
-            TeleportService:TeleportToPlaceInstance(game.PlaceId, randomServer, LocalPlayer)
-        else
-            TeleportService:Teleport(game.PlaceId, LocalPlayer)
-        end
-    else
-        TeleportService:Teleport(game.PlaceId, LocalPlayer)
-    end
-end
-
--- Seed Pack Manipulation Functions
-local function findSeedPackUI()
-    -- Look for seed pack UI in PlayerGui
-    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not playerGui then return nil end
-    
-    -- Common UI names for seed pack opening
-    local possibleNames = {"SeedPackUI", "PackOpening", "GachaUI", "SeedGacha", "PackUI"}
-    
-    for _, name in pairs(possibleNames) do
-        local ui = playerGui:FindFirstChild(name)
-        if ui then return ui end
-    end
-    
-    -- Search for any UI with seed-related content
-    for _, ui in pairs(playerGui:GetChildren()) do
-        if ui:IsA("ScreenGui") then
-            for _, element in pairs(ui:GetDescendants()) do
-                if element:IsA("TextLabel") and element.Text then
-                    for _, seedName in pairs(allSeeds) do
-                        if element.Text:find(seedName) then
-                            return ui
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    return nil
-end
-
-local function manipulateSeedPack()
-    if not Settings.SeedPackManipulation then return end
-    
-    local seedPackUI = findSeedPackUI()
-    if not seedPackUI then return end
-    
-    -- Try to find and manipulate the result
-    pcall(function()
-        -- Method 1: Try to find skip button and auto-click
-        if Settings.AutoSkipAnimation then
-            for _, element in pairs(seedPackUI:GetDescendants()) do
-                if element:IsA("TextButton") and element.Text:lower():find("skip") then
-                    element.Activated:Fire()
-                    break
-                end
-            end
-        end
-        
-        -- Method 2: Try to manipulate the seed selection
-        for _, element in pairs(seedPackUI:GetDescendants()) do
-            if element:IsA("TextLabel") and element.Text == Settings.TargetSeed then
-                -- Try to force this element to be selected
-                if element.Parent and element.Parent:FindFirstChild("Selected") then
-                    element.Parent.Selected.Value = true
-                end
-            end
-        end
-        
-        -- Method 3: Look for RemoteEvents related to seed pack
-        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-        if remotes then
-            for _, remote in pairs(remotes:GetChildren()) do
-                if remote.Name:lower():find("seed") or remote.Name:lower():find("pack") then
-                    if remote:IsA("RemoteEvent") then
-                        remote:FireServer(Settings.TargetSeed)
-                    elseif remote:IsA("RemoteFunction") then
-                        remote:InvokeServer(Settings.TargetSeed)
-                    end
-                end
-            end
-        end
-    end)
-end
-
--- Monitor for seed pack opening
-local function setupSeedPackMonitoring()
-    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not playerGui then return end
-    
-    playerGui.ChildAdded:Connect(function(child)
-        if child:IsA("ScreenGui") then
-            wait(0.1) -- Small delay to ensure UI is loaded
-            manipulateSeedPack()
-        end
-    end)
-end
-
--- Get optimal servers
-local function getOptimalServers()
-    local servers = {}
-    local success, result = pcall(function()
-        return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"))
-    end)
-    
-    if success and result.data then
-        for _, server in pairs(result.data) do
-            if server.playing >= 5 and server.playing <= 15 then
-                table.insert(servers, server.id)
-            end
-        end
-    end
-    
-    return servers
-end
-
--- Create all pet options from database
-local allPets = {}
-for eggType, pets in pairs(PetDatabase) do
-    for petName, _ in pairs(pets) do
-        table.insert(allPets, petName)
-    end
-end
-
--- GUI Creation
-local Window = Rayfield:CreateWindow({
-    Name = "Grow A Garden | Advanced Tool",
-    LoadingTitle = "Loading Advanced GUI...",
-    LoadingSubtitle = "Enhanced Detection & Seed Pack Manipulation",
-    ConfigurationSaving = {
-        Enabled = true,
-        FolderName = "GrowAGardenAdvanced",
-        FileName = "config"
-    }
+-- Create GUI
+local Window = GUI:MakeWindow({
+    Name = "Grow A Garden - Enhanced",
+    HidePremium = false,
+    SaveConfig = true,
+    ConfigFolder = "GrowAGardenEnhanced"
 })
 
--- Tabs
-local MainTab = Window:CreateTab("🏠 Main", 4483362458)
-local ESPTab = Window:CreateTab("👁️ Advanced ESP", 4483362458)
-local ServerHopTab = Window:CreateTab("🌐 Smart Server Hop", 4483362458)
-local SeedTab = Window:CreateTab("🌱 Seed Pack Manipulator", 4483362458)
-local UtilsTab = Window:CreateTab("🛠️ Utils", 4483362458)
-
--- Main Tab
-MainTab:CreateLabel("Advanced Grow A Garden Tool")
-MainTab:CreateLabel("Enhanced detection & smart targeting")
-
-MainTab:CreateButton({
-    Name = "🔄 Force Refresh Detection",
-    Callback = function()
-        UpdateAdvancedESP()
-        Rayfield:Notify({
-            Title = "Detection Refreshed",
-            Content = "Advanced ESP detection refreshed!",
-            Duration = 3
-        })
-    end
+local MainTab = Window:MakeTab({
+    Name = "Main",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
 })
 
--- ESP Tab
-ESPTab:CreateToggle({
-    Name = "Enable Advanced Pet ESP",
-    CurrentValue = false,
+local SeedTab = Window:MakeTab({
+    Name = "Seed Pack",
+    Icon = "rbxassetid://4483345998", 
+    PremiumOnly = false
+})
+
+-- Main Tab Controls
+MainTab:AddToggle({
+    Name = "Enable Pet ESP",
+    Default = false,
     Callback = function(Value)
         Settings.ESPEnabled = Value
-        if Value then
-            UpdateAdvancedESP()
-        else
-            ClearAllESP()
-        end
+        showNotification("ESP", Value and "Enabled" or "Disabled", 2)
     end
 })
 
-ESPTab:CreateDropdown({
-    Name = "Target Pets (Multi-Select)",
-    Options = allPets,
-    CurrentOption = {"Disco Bee"},
-    MultipleOptions = true,
-    Callback = function(Options)
-        Settings.TargetPets = Options
-        if Settings.ESPEnabled then
-            UpdateAdvancedESP()
-        end
-    end
-})
-
-ESPTab:CreateToggle({
-    Name = "Show Pet Weight (KG)",
-    CurrentValue = true,
-    Callback = function(Value)
-        Settings.ShowWeight = Value
-        if Settings.ESPEnabled then
-            UpdateAdvancedESP()
-        end
-    end
-})
-
--- Server Hop Tab
-ServerHopTab:CreateToggle({
-    Name = "Enable Smart Server Hop",
-    CurrentValue = false,
-    Callback = function(Value)
-        Settings.ServerHopEnabled = Value
-    end
-})
-
-ServerHopTab:CreateToggle({
-    Name = "Prefer Low Population Servers",
-    CurrentValue = true,
-    Callback = function(Value)
-        Settings.LowPopServers = Value
-    end
-})
-
-ServerHopTab:CreateSlider({
-    Name = "Server Hop Delay (seconds)",
-    Range = {1, 30},
-    Increment = 1,
-    CurrentValue = 3,
-    Callback = function(Value)
-        Settings.ServerHopDelay = Value
-    end
-})
-
-ServerHopTab:CreateButton({
-    Name = "🚀 Hop Server Now",
+MainTab:AddButton({
+    Name = "Server Hop",
     Callback = function()
-        EnhancedServerHop()
+        TeleportService:Teleport(game.PlaceId, LocalPlayer)
     end
 })
 
--- Seed Pack Tab
-SeedTab:CreateLabel("Seed Pack Manipulation System")
-SeedTab:CreateLabel("Target specific seeds from Flower Seed Packs")
-
-SeedTab:CreateToggle({
+-- Enhanced Seed Pack Tab
+SeedTab:AddToggle({
     Name = "Enable Seed Pack Manipulation",
-    CurrentValue = false,
+    Default = true,
     Callback = function(Value)
         Settings.SeedPackManipulation = Value
         if Value then
-            setupSeedPackMonitoring()
+            SeedPackManager:startMonitoring()
         end
+        showNotification("Seed Pack", Value and "Manipulation Enabled" or "Disabled", 2)
     end
 })
 
-SeedTab:CreateDropdown({
-    Name = "Target Seed",
-    Options = allSeeds,
-    CurrentOption = {"Sunflower"},
-    Callback = function(Option)
-        Settings.TargetSeed = Option[1]
-    end
-})
-
-SeedTab:CreateToggle({
-    Name = "Auto Skip Pack Animation",
-    CurrentValue = true,
+SeedTab:AddToggle({
+    Name = "Auto Skip Animations",
+    Default = true,
     Callback = function(Value)
         Settings.AutoSkipAnimation = Value
     end
 })
 
-SeedTab:CreateButton({
-    Name = "🎯 Test Seed Manipulation",
+SeedTab:AddButton({
+    Name = "Test Seed Pack Detection",
     Callback = function()
-        manipulateSeedPa
+        local packUI = SeedPackManager:detectSeedPackUI()
+        if packUI then
+            showNotification("Detection", "Seed pack UI found!", 3)
+            SeedPackManager:manipulatePack(packUI)
+        else
+            showNotification("Detection", "No seed pack UI detected", 3)
+        end
+    end
+})
+
+SeedTab:AddButton({
+    Name = "Target: Sunflower (Divine)",
+    Callback = function()
+        Settings.TargetSeed = "Sunflower"
+        showNotification("Target", "Set to Sunflower (Divine)", 2)
+    end
+})
+
+SeedTab:AddButton({
+    Name = "Target: Purple Dahlia (Mythical)", 
+    Callback = function()
+        Settings.TargetSeed = "Purple Dahlia"
+        showNotification("Target", "Set to Purple Dahlia (Mythical)", 2)
+    end
+})
+
+-- Initialize seed pack monitoring
+SeedPackManager:startMonitoring()
+
+-- Main execution loop
+spawn(function()
+    while true do
+        wait(2)
+        
+        -- Auto seed pack manipulation check
+        if Settings.SeedPackManipulation and not SeedPackManager.activeManipulation then
+            local packUI = SeedPackManager:detectSeedPackUI()
+            if packUI then
+                SeedPackManager:manipulatePack(packUI)
+            end
+        end
+    end
+end)
+
+-- Show success notification
+showNotification("Success", "Enhanced Grow A Garden tool loaded!", 5)
+print("Grow A Garden Enhanced - Loaded successfully!")
+print("Focused on advanced seed pack manipulation")
+print("Target seed:", Settings.TargetSeed)
